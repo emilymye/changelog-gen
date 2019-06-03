@@ -16,8 +16,13 @@ const (
 )
 
 var (
-	labelsBug           = []string{"bug", "kind/bug"}
-	labelsNoReleaseNote = []string{"no-release-note", "release-note-none"}
+	labelsBug                = []string{"bug", "kind/bug"}
+	labelsNoReleaseNote      = []string{"no-release-note", "release-note-none"}
+	productsFilenameOverride = map[string]string{
+		"app_engine":    "app_engine",
+		"cloud_build":   "cloudbuild",
+		"cloud_trigger": "cloudtrigger",
+	}
 )
 
 // ReleaseNote is the type that represents the total sum of all the information
@@ -41,11 +46,24 @@ type ReleaseNote struct {
 	// PRNumber is the number of the PR
 	PRNumber int `json:"pr_number"`
 
-	// Labels is a list of all the labels on the PR.
+	// Name of all resources that were changed in the PR.
+	ChangedResources []string `labels:"resources,omitempty"`
+
+	// Name of all data sources that were changed in the PR.
+	ChangedDatasources []string `labels:"datasources,omitempty"`
+
+	// ProductLabels is a list of all the labels starting with "product/" on the PR.
+	ProductLabels []string `labels:"areas,omitempty"`
+
+	// Labels is a list of all other labels on the PR.
 	Labels []string `labels:"areas,omitempty"`
 
 	// Indicates whether or not a note will appear as a bug (`bug` label).
 	Bug bool `json:"bug,omitempty"`
+
+	// Indicates whether or not a note will appear as a feature (`feature` label).
+	NewResource   bool `json:"bug,omitempty"`
+	NewDatasource bool `json:"bug,omitempty"`
 
 	// BreakingChange indicates if this change was breaking (the
 	// `breaking-change` label was applied to the PR).
@@ -140,6 +158,7 @@ func listPullRequestIDs(
 					}
 				}
 			}
+
 			if noChangelog {
 				logger.Debug("no-changelog label applied, skipping")
 				continue
@@ -190,6 +209,13 @@ func pullRequestsToReleaseNotes(
 					Login string
 					URL   string
 				}
+				Files struct {
+					Nodes []struct {
+						Path      string
+						Additions int
+						Deletions int
+					}
+				} `graphql:"files(first: 20)"`
 				Labels struct {
 					Nodes []struct {
 						Name string
@@ -234,8 +260,48 @@ func pullRequestsToReleaseNotes(
 				note.Bug = true
 			case ln.Name == labelBreakingChange:
 				note.BreakingChange = true
+			case strings.HasPrefix(ln.Name, "product/"):
+				note.ProductLabels = append(note.ProductLabels, strings.TrimPrefix(ln.Name, "product/"))
+			case ln.Name == "new-resource":
+				note.NewResource = true
+			case ln.Name == "new-datasource":
+				note.NewDatasource = true
 			default:
 				note.Labels = append(note.Labels, ln.Name)
+			}
+		}
+
+		products := map[string]struct{}{}
+		for _, fn := range n.PullRequest.Files.Nodes {
+			var path string
+			if strings.HasPrefix(fn.Path, "google/") {
+				path = strings.TrimPrefix(fn.Path, "google/")
+			} else if strings.HasPrefix(fn.Path, "google-beta/") {
+				path = strings.TrimPrefix(fn.Path, "google-beta/")
+			} else {
+				continue
+			}
+
+			if strings.HasPrefix(path, "resource_") && !strings.HasSuffix(path, "test.go") {
+				product, resource := parseResourceFromFilepath(path, "resource_")
+				note.ChangedResources = append(note.ChangedResources, resource)
+				products[product] = struct{}{}
+			}
+			if strings.HasPrefix(path, "data_source_") && !strings.HasSuffix(path, "test.go") {
+				product, datasrc := parseResourceFromFilepath(path, "data_source_")
+				note.ChangedDatasources = append(note.ChangedDatasources, datasrc)
+				products[product] = struct{}{}
+			}
+		}
+
+		if len(note.ChangedResources) == 0 && len(note.ChangedDatasources) == 0 {
+			// Skip changes not made to resource/datasources
+			continue
+		}
+
+		if len(note.ProductLabels) < 1 && len(products) == 1 {
+			for k := range products {
+				note.ProductLabels = []string{k}
 			}
 		}
 
@@ -243,6 +309,25 @@ func pullRequestsToReleaseNotes(
 	}
 
 	return notes, nil
+}
+
+func parseResourceFromFilepath(path, prefix string) (product, resource string) {
+	resource = strings.TrimPrefix(path, prefix)
+	resource = strings.TrimSuffix(resource, ".go")
+	for k, v := range productsFilenameOverride {
+		if strings.HasPrefix(resource, k) {
+			return v, resource
+		}
+	}
+
+	tkns := strings.Split(resource, "_")
+	if len(tkns) > 2 && tkns[0] == "google" {
+		return tkns[1], resource
+	}
+	if len(tkns) > 1 {
+		return tkns[0], "google_" + resource
+	}
+	return "", resource
 }
 
 var textInBodyREs = []*regexp.Regexp{
@@ -275,7 +360,9 @@ func textFromPR(title, body string) string {
 	}
 
 	text = strings.TrimSpace(text)
-
+	if text[len(text)-1] != '.' {
+		text = text + "."
+	}
 	return text
 }
 

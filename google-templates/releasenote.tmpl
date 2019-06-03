@@ -1,0 +1,7 @@
+{{- if .NewResource -}}**New Resource**:
+{{- else if .NewDatasource -}}**New Datasource**:
+{{- else -}}{{- with .ProductLabels | sortAlpha -}}{{if len . | lt 0 }}{{ . | join ", " }}: {{end}}{{- end -}}
+{{- end -}}{{- .Text -}}
+{{- with .ChangedResources | sortAlpha -}}{{if len . | lt 0 }} Changed Resources: `{{. | join "`, `" }}`. {{end}}{{- end -}}
+{{- with .ChangedDatasources | sortAlpha -}}{{if len . | lt 0 }} Changed Datasources: `{{. | join "`, `" }}`. {{end}}{{- end -}}
+([#{{.PRNumber}}]({{.PRURL}}))

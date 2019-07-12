@@ -1,0 +1,43 @@
+{{- $breaking := newStringList -}}
+{{- $features := newStringList -}}
+{{- $enhancements := newStringList -}}
+{{- $bugs := newStringList -}}
+{{- range . -}}
+  {{if .BreakingChange -}}
+	{{$breaking = append $breaking (renderReleaseNote .) -}}
+  {{else if or (has "new-resource" .Labels) (has "new-datasource" .Labels) -}}
+	{{$features = append $features (renderReleaseNote .) -}}
+  {{else if or (.Bug) (has "bug-fix" .Labels) (has "bugfix" .Labels) -}}
+    {{$bugs = append $bugs (renderReleaseNote .) -}}
+  {{else -}}
+    {{$enhancements = append $enhancements (renderReleaseNote .) -}}
+  {{end -}}
+{{- end -}}
+{{ if gt (len $breaking) 0 }}
+BACKWARDS INCOMPATIBILITIES
+
+{{ range $breaking | sortAlpha -}}
+* {{. -}}
+{{ end -}}
+{{ end -}}
+{{ if gt (len $features) 0 }}
+FEATURES
+
+{{ range $features | sortAlpha -}}
+* {{. -}}
+{{ end -}}
+{{ end -}}
+{{ if gt (len $enhancements) 0 }}
+ENHANCEMENTS
+
+{{ range $enhancements | sortAlpha -}}
+* {{. -}}
+{{ end -}}
+{{ end -}}
+{{ if gt (len $bugs) 0 }}
+BUG FIXES
+
+{{ range $bugs | sortAlpha -}}
+* {{. -}}
+{{ end -}}
+{{ end -}}

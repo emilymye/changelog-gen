@@ -1,0 +1,3 @@
+{{- if (has "new-resource" .Labels) -}}**New Resource**
+{{- else if (has "new-datasource" .Labels) -}}**New Datasource**
+{{- end -}}{{- .Text }} [#{{- .PRNumber -}}]({{- .PRURL -}})
